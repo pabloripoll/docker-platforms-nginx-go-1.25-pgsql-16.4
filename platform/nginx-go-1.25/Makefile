@@ -21,7 +21,7 @@ endif
 
 include ../../.env
 
-DOCKER_PLTF="NGINX 1.27 / GO 1.25"
+DOCKER_PLTF="GO 1.25"
 DOCKER_LEAD=$(PROJECT_LEAD)
 DOCKER_CNET=$(PROJECT_CNET)
 DOCKER_HOST=$(PROJECT_HOST)
@@ -92,10 +92,10 @@ else
 	COMPOSE_PROJECT_SWAP=\"$(DOCKER_SWAP)\"\r\n\
 	COMPOSE_PROJECT_USER=\"$(DOCKER_USER)\"\r\n\
 	COMPOSE_PROJECT_GROUP=\"$(DOCKER_GROUP)\"" > ./docker/.env; \
-	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST - $(DOCKER_PLTF) "${C_YEL}"docker-compose.yml"${C_END}" .env file "${C_GRN}"has been set."${C_END};
-	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST - Container: "${C_GRN}$(DOCKER_CONTAINER)${C_END}
-	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST - Max. memory usage: "${C_GRN}$(DOCKER_MEM)${C_END}
-	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST - Is going to be served at: "${C_GRN}http://127.0.0.1:$(DOCKER_PORT)${C_END}
+	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST "${C_YEL}$(DOCKER_PLTF)${C_END}" - "${C_YEL}"docker-compose.yml"${C_END}" .env file "${C_GRN}"has been set."${C_END};
+	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST "${C_YEL}$(DOCKER_PLTF)${C_END}" - Container: "${C_GRN}$(DOCKER_CONTAINER)${C_END}
+	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST "${C_YEL}$(DOCKER_PLTF)${C_END}" - Max. memory usage: "${C_GRN}$(DOCKER_MEM)${C_END}
+	echo ${C_BLU}"$(PROJECT_NAME)"${C_END}" APIREST "${C_YEL}$(DOCKER_PLTF)${C_END}" - Served at: "${C_GRN}http://127.0.0.1:$(DOCKER_PORT)${C_END}
 endif
 
 # -------------------------------------------------------------------------------------------------
@@ -147,9 +147,30 @@ network:
 	cd docker && $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.network.yml up -d
 
 # -------------------------------------------------------------------------------------------------
-#  Container settings update on the run
+#  Supervisord services management
 # -------------------------------------------------------------------------------------------------
-.PHONY: nginx-conf php-conf php-fpm-conf
+.PHONY: supervisord-conf supervisord-conf-update
 
-nginx-conf: ## shows NGINX server block on running container
+supervisord-conf: ## lists supervisord services set on the running container
+	$(DOCKER) exec -i $(DOCKER_CONTAINER) sh -c 'ls -l /etc/supervisor/conf.d/'
+
+supervisord-update: ## updates supervisord services without the need of stoping or rebuilding the container
+	$(DOCKER) cp ./docker/config/supervisor/conf.d/. $(DOCKER_CONTAINER):/etc/supervisor/conf.d/
+	$(MAKE) restart
+
+# -------------------------------------------------------------------------------------------------
+#  Nginx settings management
+# -------------------------------------------------------------------------------------------------
+.PHONY: nginx-conf nginx-update nginx-default-conf nginx-default-update
+
+nginx-conf: ## shows nginx configuration set on the running container
 	$(DOCKER) exec -i $(DOCKER_CONTAINER) sh -c 'cat /etc/nginx/conf.d/default.conf'
+
+nginx-update: ## updates nginx configuration without the need of stoping or rebuilding the container
+	$(DOCKER) cp ./docker/config/nginx/nginx.conf $(DOCKER_CONTAINER):/etc/nginx/conf.d/default.conf
+
+nginx-default-conf: ## shows nginx default server block set on the running container
+	$(DOCKER) exec -i $(DOCKER_CONTAINER) sh -c 'cat /etc/nginx/conf.d/default.conf'
+
+nginx-default-update: ## updates nginx default server block without the need of stoping or rebuilding the container
+	$(DOCKER) cp ./docker/config/nginx/conf.d/default.conf $(DOCKER_CONTAINER):/etc/nginx/conf.d/default.conf

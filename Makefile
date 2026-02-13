@@ -21,7 +21,7 @@ endif
 include .env
 
 APIREST_BRANCH:=develop
-APIREST_PROJECT:=$(PROJECT_NAME) - APIREST
+APIREST_PROJECT:=$(PROJECT_NAME) - DEVELOPMENT
 APIREST_CONTAINER:=$(addsuffix -$(APIREST_CAAS), $(PROJECT_LEAD))
 DATABASE_CONTAINER:=$(addsuffix -$(DATABASE_CAAS), $(PROJECT_LEAD))
 ROOT_DIR=$(patsubst %/,%,$(dir $(realpath $(firstword $(MAKEFILE_LIST)))))
@@ -41,13 +41,21 @@ help: ## shows this Makefile help message
 # -------------------------------------------------------------------------------------------------
 #  System
 # -------------------------------------------------------------------------------------------------
-.PHONY: local-hostname local-ownership local-ownership-set
+.PHONY: local-info local-ownership local-ownership-set services-set services-create services-info services-destroy
 
-local-hostname: ## shows local machine ip and container ports set
-	echo "Container Address:"
-	echo ${C_BLU}"LOCAL: "${C_END}"$(word 1,$(shell hostname -I))"
-	echo ${C_BLU}"APIREST: "${C_END}"$(word 1,$(shell hostname -I)):"$(APIREST_PORT)
-	echo ${C_BLU}"DATABASE: "${C_END}"$(word 1,$(shell hostname -I)):"$(DATABASE_PORT)
+local_ip ?= $(word 1,$(shell hostname -I))
+local-info: ## shows local machine ip and container ports set
+	echo "Container Services:"
+	echo ${C_BLU}"LOCAL IP / HOSTNAME:"${C_END} ${C_YEL}"$(local_ip)"${C_END}
+	echo ${C_BLU}"CORE DB SQL:"${C_END}" $(local_ip):"${C_YEL}"$(DATABASE_PORT)"${C_END}
+	echo ${C_BLU}"SESSION DB:"${C_END}" $(local_ip):"${C_YEL}"$(REDIS_PORT)"${C_END}
+	echo ${C_BLU}"EVENT DB:"${C_END}" $(local_ip):"${C_YEL}"$(MONGODB_PORT)"${C_END}
+	echo ${C_BLU}"EVENT DB CLIENT:"${C_END}" $(local_ip):"${C_YEL}"$(MONGODB_APP_PORT)"${C_END}
+	echo ${C_BLU}"REST API:"${C_END}" $(local_ip):"${C_YEL}"$(APIREST_PORT)"${C_END}
+	echo ${C_BLU}"MAILER:"${C_END}" $(local_ip):"${C_YEL}"$(MAILER_PORT)"${C_END}
+	echo ${C_BLU}"MAILER CLIENT:"${C_END}" $(local_ip):"${C_YEL}"$(MAILER_APP_PORT)"${C_END}
+	echo ${C_BLU}"BROKER:"${C_END}" $(local_ip):"${C_YEL}"$(BROKER_PORT)"${C_END}
+	echo ${C_BLU}"BROKER CLIENT:"${C_END}" $(local_ip):"${C_YEL}"$(BROKER_APP_PORT)"${C_END}
 
 user ?= ${USER}
 group ?= root
@@ -56,6 +64,18 @@ local-ownership: ## shows local ownership
 
 local-ownership-set: ## sets recursively local root directory ownership
 	$(SUDO) chown -R ${user}:${group} $(ROOT_DIR)/
+
+services-set: ## sets all container services
+	$(MAKE) apirest-set db-set mailer-set
+
+services-create: ## builds and starts up all container services
+	$(MAKE) apirest-create db-create mailer-create
+
+services-info: ## shows all container services information
+	$(MAKE) apirest-info db-info mailer-info
+
+services-destroy: ## destroys all container services
+	$(MAKE) apirest-destroy db-destroy mailer-destroy
 
 # -------------------------------------------------------------------------------------------------
 #  Backend API Service
@@ -97,6 +117,55 @@ apirest-destroy: ## destroys completly the apirest container
         echo ${C_GRN}"K.O.! container has been stopped but not destroyed."${C_END}; \
     else \
 		cd platform/$(APIREST_PLTF) && $(MAKE) stop clear destroy; \
+		echo -n ${C_GRN}"Do you want to clear DOCKER cache? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
+			echo ${C_YEL}"The following command is delegated to be executed by user:"${C_END}; \
+			echo "$$ $(DOCKER) system prune"; \
+		else \
+			$(DOCKER) system prune; \
+			echo ${C_GRN}"O.K.! DOCKER cache has been cleared up."${C_END}; \
+		fi \
+	fi
+
+# -------------------------------------------------------------------------------------------------
+#  Mailer Service
+# -------------------------------------------------------------------------------------------------
+.PHONY: mailer-hostcheck mailer-info mailer-set mailer-create mailer-network mailer-ssh mailer-start mailer-stop mailer-destroy
+
+mailer-hostcheck: ## shows this project ports availability on local machine for mailer container
+	cd platform/$(MAILER_PLTF) && $(MAKE) port-check
+
+mailer-info: ## shows the mailer docker related information
+	cd platform/$(MAILER_PLTF) && $(MAKE) info
+
+mailer-set: ## sets the mailer enviroment file to build the container
+	cd platform/$(MAILER_PLTF) && $(MAKE) env-set
+
+mailer-create: ## creates the mailer container from Docker image
+	cd platform/$(MAILER_PLTF) && $(MAKE) build up
+
+mailer-network: ## creates the mailer container network - execute this recipe first before others
+	$(MAKE) mailer-stop
+	cd platform/$(MAILER_PLTF) && $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.network.yml up -d
+
+mailer-ssh: ## enters the mailer container shell
+	cd platform/$(MAILER_PLTF) && $(MAKE) ssh
+
+mailer-start: ## starts the mailer container running
+	cd platform/$(MAILER_PLTF) && $(MAKE) start
+
+mailer-stop: ## stops the mailer container but its assets will not be destroyed
+	cd platform/$(MAILER_PLTF) && $(MAKE) stop
+
+mailer-restart: ## restarts the running mailer container
+	cd platform/$(MAILER_PLTF) && $(MAKE) restart
+
+mailer-destroy: ## destroys completly the mailer container
+	echo ${C_RED}"Attention!"${C_END};
+	echo ${C_YEL}"You're about to remove the "${C_BLU}"$(MAILER_PROJECT)"${C_END}" container and delete its image resource."${C_END};
+	@echo -n ${C_RED}"Are you sure to proceed? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
+        echo ${C_GRN}"K.O.! container has been stopped but not destroyed."${C_END}; \
+    else \
+		cd platform/$(MAILER_PLTF) && $(MAKE) stop clear destroy; \
 		echo -n ${C_GRN}"Do you want to clear DOCKER cache? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
 			echo ${C_YEL}"The following command is delegated to be executed by user:"${C_END}; \
 			echo "$$ $(DOCKER) system prune"; \
@@ -159,11 +228,11 @@ db-destroy: ## destroys completly the database container with its data
 
 .PHONY: db-test-up db-test-down
 
-db-test-up: ## creates a side database for tests
-	cd platform/$(DATABASE_PLTF) && $(MAKE) db-test-up
+db-test-up: ## creates a side database for testing porpuses
+	cd platform/$(DATABASE_PLTF) && $(MAKE) test-up
 
-db-test-down: ## drops the side database for tests
-	cd platform/$(DATABASE_PLTF) && $(MAKE) db-test-down
+db-test-down: ## drops the side testing database
+	cd platform/$(DATABASE_PLTF) && $(MAKE) test-down
 
 .PHONY: db-sql-install db-sql-replace db-sql-backup db-sql-remote db-copy-remote
 
@@ -182,104 +251,6 @@ db-sql-backup: ## copies the container main database as backup into a .sql file
 db-sql-drop: ## drops the container main database but recreates the database without schema as a reset action
 	$(MAKE) local-ownership-set;
 	cd platform/$(DATABASE_PLTF) && $(MAKE) sql-drop
-
-# -------------------------------------------------------------------------------------------------
-#  Mailer Service
-# -------------------------------------------------------------------------------------------------
-.PHONY: mailhog-hostcheck mailhog-info mailhog-set mailhog-create mailhog-network mailhog-ssh mailhog-start mailhog-stop mailhog-destroy
-
-mailhog-hostcheck: ## shows this project ports availability on local machine for broker container
-	cd platform/$(MAILER_PLTF) && $(MAKE) port-check
-
-mailhog-info: ## shows the broker docker related information
-	cd platform/$(MAILER_PLTF) && $(MAKE) info
-
-mailhog-set: ## sets the broker enviroment file to build the container
-	cd platform/$(MAILER_PLTF) && $(MAKE) env-set
-
-mailhog-create: ## creates the broker container from Docker image
-	cd platform/$(MAILER_PLTF) && $(MAKE) build up
-
-mailhog-network: ## creates the broker container network - execute this recipe first before others
-	$(MAKE) mailhog-stop
-	cd platform/$(MAILER_PLTF) && $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.network.yml up -d
-
-mailhog-ssh: ## enters the broker container shell
-	cd platform/$(MAILER_PLTF) && $(MAKE) ssh
-
-mailhog-start: ## starts the broker container running
-	cd platform/$(MAILER_PLTF) && $(MAKE) start
-
-mailhog-stop: ## stops the broker container but its assets will not be destroyed
-	cd platform/$(MAILER_PLTF) && $(MAKE) stop
-
-mailhog-restart: ## restarts the running broker container
-	cd platform/$(MAILER_PLTF) && $(MAKE) restart
-
-mailhog-destroy: ## destroys completly the broker container
-	echo ${C_RED}"Attention!"${C_END};
-	echo ${C_YEL}"You're about to remove the "${C_BLU}"$(MAILER_PROJECT)"${C_END}" container and delete its image resource."${C_END};
-	@echo -n ${C_RED}"Are you sure to proceed? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
-        echo ${C_GRN}"K.O.! container has been stopped but not destroyed."${C_END}; \
-    else \
-		cd platform/$(MAILER_PLTF) && $(MAKE) stop clear destroy; \
-		echo -n ${C_GRN}"Do you want to clear DOCKER cache? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
-			echo ${C_YEL}"The following command is delegated to be executed by user:"${C_END}; \
-			echo "$$ $(DOCKER) system prune"; \
-		else \
-			$(DOCKER) system prune; \
-			echo ${C_GRN}"O.K.! DOCKER cache has been cleared up."${C_END}; \
-		fi \
-	fi
-
-# -------------------------------------------------------------------------------------------------
-#  Broker Service
-# -------------------------------------------------------------------------------------------------
-.PHONY: rabbitmq-hostcheck rabbitmq-info rabbitmq-set rabbitmq-create rabbitmq-network rabbitmq-ssh rabbitmq-start rabbitmq-stop rabbitmq-destroy
-
-rabbitmq-hostcheck: ## shows this project ports availability on local machine for broker container
-	cd platform/$(BROKER_PLTF) && $(MAKE) port-check
-
-rabbitmq-info: ## shows the broker docker related information
-	cd platform/$(BROKER_PLTF) && $(MAKE) info
-
-rabbitmq-set: ## sets the broker enviroment file to build the container
-	cd platform/$(BROKER_PLTF) && $(MAKE) env-set
-
-rabbitmq-create: ## creates the broker container from Docker image
-	cd platform/$(BROKER_PLTF) && $(MAKE) build up
-
-rabbitmq-network: ## creates the broker container network - execute this recipe first before others
-	$(MAKE) rabbitmq-stop
-	cd platform/$(BROKER_PLTF) && $(DOCKER_COMPOSE) -f docker-compose.yml -f docker-compose.network.yml up -d
-
-rabbitmq-ssh: ## enters the broker container shell
-	cd platform/$(BROKER_PLTF) && $(MAKE) ssh
-
-rabbitmq-start: ## starts the broker container running
-	cd platform/$(BROKER_PLTF) && $(MAKE) start
-
-rabbitmq-stop: ## stops the broker container but its assets will not be destroyed
-	cd platform/$(BROKER_PLTF) && $(MAKE) stop
-
-rabbitmq-restart: ## restarts the running broker container
-	cd platform/$(BROKER_PLTF) && $(MAKE) restart
-
-rabbitmq-destroy: ## destroys completly the broker container
-	echo ${C_RED}"Attention!"${C_END};
-	echo ${C_YEL}"You're about to remove the "${C_BLU}"$(BROKER_PROJECT)"${C_END}" container and delete its image resource."${C_END};
-	@echo -n ${C_RED}"Are you sure to proceed? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
-        echo ${C_GRN}"K.O.! container has been stopped but not destroyed."${C_END}; \
-    else \
-		cd platform/$(BROKER_PLTF) && $(MAKE) stop clear destroy; \
-		echo -n ${C_GRN}"Do you want to clear DOCKER cache? "${C_END}"[y/n]: " && read response && if [ $${response:-'n'} != 'y' ]; then \
-			echo ${C_YEL}"The following command is delegated to be executed by user:"${C_END}; \
-			echo "$$ $(DOCKER) system prune"; \
-		else \
-			$(DOCKER) system prune; \
-			echo ${C_GRN}"O.K.! DOCKER cache has been cleared up."${C_END}; \
-		fi \
-	fi
 
 # -------------------------------------------------------------------------------------------------
 #  Repository Helper
